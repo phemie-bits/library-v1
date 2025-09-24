@@ -1,10 +1,11 @@
 "use client";
 
 import config from "@/lib/config";
+import { cn } from "@/lib/utils";
 import {
   ImageKitProvider,
   upload,
-  Video,
+  Video as IkVideo,
   Image as IkImage,
   ImageKitAbortError,
   ImageKitInvalidRequestError,
@@ -16,7 +17,6 @@ import ImageKit from "imagekit";
 import Image from "next/image";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-
 
 const {
   env: {
@@ -46,20 +46,49 @@ const authenticator = async () => {
     throw new Error("Authentication request failed");
   }
 };
+interface Props {
+  type: "image" | "video";
+  accept: string;
+  placeholder: string;
+  folder: string;
+  variant: "dark" | "light";
+  onFileChange: (filePath: string) => void;
+}
 
 const FileUpload = ({
+  type,
+  accept,
+  placeholder,
+  folder,
+  variant,
   onFileChange,
-}: {
-  onFileChange: (filePath: string) => void;
-}) => {
+}: Props) => {
   const [file, setFile] = useState<{ filePath: string } | null>(null);
+
+  // State to keep track of the current upload progress (percentage)
+  const [progress, setProgress] = useState(0);
+
+  // Create a ref for the file input element to access its files easily
+  const ikUploadRef = useRef<HTMLInputElement>(null);
+
+  // Create an AbortController instance to provide an option to cancel the upload if needed.
+  const abortController = new AbortController();
+
+  const styles = {
+    button:
+      variant === "dark"
+        ? "bg-dark-300"
+        : "bg-light-600 border-gray-100 border",
+    placeholder: variant === "dark" ? "text-light-100" : "text-slate-500",
+    text: variant === "dark" ? "text-light-100" : "text-dark-400",
+  };
 
   const onError = (error: any) => {
     toast("Image upload failed", {
       description: `Your image could not be uploaded`,
       action: {
         label: "Okay",
-        onClick: () =>{},
+        onClick: () => {},
       },
     });
   };
@@ -72,19 +101,40 @@ const FileUpload = ({
       description: `${res.filePath} uploaded successfully!'`,
       action: {
         label: "Okay",
-        onClick: () =>{},
+        onClick: () => {},
       },
     });
   };
 
-  // State to keep track of the current upload progress (percentage)
-  const [progress, setProgress] = useState(0);
+  const onValidate = (file: File) => {
+    if (type === "image") {
+      if (file.size > 20 * 1024 * 1024) {
+        toast("File size too large", {
+          description: "Please upload a file that is less than 20MB in size",
+          action: {
+            label: "Okay",
+            onClick: () => {},
+          },
+        });
 
-  // Create a ref for the file input element to access its files easily
-  const ikUploadRef = useRef<HTMLInputElement>(null);
+        return false;
+      }
+    } else if (type === "video") {
+      if (file.size > 50 * 1024 * 1024) {
+        toast("File size too large", {
+          description: "Please upload a file that is less than 50MB in size",
+          action: {
+            label: "Okay",
+            onClick: () => {},
+          },
+        });
 
-  // Create an AbortController instance to provide an option to cancel the upload if needed.
-  const abortController = new AbortController();
+        return false;
+      }
+    }
+
+    return true;
+  };
 
   /**
    * Handles the file upload process.
@@ -103,7 +153,10 @@ const FileUpload = ({
       alert("Please select a file to upload");
       return;
     }
-
+    //check of size of file is too large
+    if (!onValidate) {
+      return;
+    }
     // Extract the first file from the file input
     const file = fileInput.files[0];
 
@@ -125,12 +178,14 @@ const FileUpload = ({
         token,
         signature,
         publicKey,
+        useUniqueFileName: true,
         file,
         fileName: file.name, // Optionally set a custom file name
         // Progress callback to update upload progress state
         onProgress: (event) => {
           setProgress((event.loaded / event.total) * 100);
         },
+        folder: folder,
         // Abort signal to allow cancellation of the upload if needed.
         abortSignal: abortController.signal,
       });
@@ -157,9 +212,14 @@ const FileUpload = ({
     <ImageKitProvider urlEndpoint={urlEndpoint}>
       {/* File input element using Ik upload ref */}
 
-      <input className="hidden" type="file" ref={ikUploadRef} onChange={handleUpload}/>
+      <input
+        className="hidden"
+        type="file"
+        ref={ikUploadRef}
+        onChange={handleUpload}
+      />
       <button
-        className="upload-btn"
+        className={cn("upload-btn", styles.button)}
         onClick={(e) => {
           e.preventDefault();
           if (ikUploadRef.current) {
@@ -174,17 +234,35 @@ const FileUpload = ({
           height={20}
           className="object-contain"
         />
-        <p className="text-base text-light-100">Upload a File</p>
-        {file && <p className="upload-filename">{file.filePath}</p>}
+        <p className={cn("text-base", styles.placeholder)}>{placeholder}</p>
+        {file && (
+          <p className={cn("upload-filename", styles.text)}>{file.filePath}</p>
+        )}
       </button>
-      {file && (
-        <IkImage
-          alt={file.filePath}
-          src={file.filePath}
-          width={500}
-          height={300}
-        />
+
+      {progress > 0 && progress !== 100 && (
+        <div className="w-full rounded-full bg-green-200">
+          <div className="progress" style={{ width: `${progress}%` }}>
+            {progress}%
+          </div>
+        </div>
       )}
+
+      {file &&
+        (type === "image" ? (
+          <IkImage
+            alt={file.filePath}
+            src={file.filePath}
+            width={500}
+            height={300}
+          />
+        ) : type === "video" ? (
+          <IkVideo
+            src={file.filePath}
+            controls={true}
+            className="h-96 w-full rounded-xl"
+          />
+        ) : null)}
     </ImageKitProvider>
   );
 };
